@@ -62,6 +62,27 @@ func liveClient(t *testing.T) *Client {
 	return client
 }
 
+// func TestLive_DebugTools(t *testing.T) {
+// 	client := liveClient(t)
+
+// 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// 	defer cancel()
+
+// 	tools, err := client.ListTools(ctx)
+// 	if err != nil {
+// 		t.Fatalf("list tools: %v", err)
+// 	}
+
+// 	data, err := json.MarshalIndent(tools, "", "  ")
+// 	if err != nil {
+// 		t.Fatalf("marshal tools: %v", err)
+// 	}
+
+// 	fmt.Println("\n========== MCP TOOLS ==========")
+// 	fmt.Println(string(data))
+// 	fmt.Println("========== END MCP TOOLS ==========")
+// }
+
 func TestLive_InitializeAndCapabilities(t *testing.T) {
 	client := liveClient(t)
 
@@ -352,23 +373,23 @@ func TestLive_ListPositions(t *testing.T) {
 	}
 
 	for _, position := range positions {
-		if position.ID <= 0 {
+		if position.PositionID <= 0 {
 			t.Errorf(
 				"position has invalid ID: %d",
-				position.ID,
+				position.PositionID,
 			)
 		}
 
 		if position.AssetID <= 0 {
 			t.Errorf(
 				"position %d has invalid asset ID",
-				position.ID,
+				position.PositionID,
 			)
 		}
 
 		t.Logf(
 			"position id=%d asset=%s direction=%s amount=%.2f remaining=%ds",
-			position.ID,
+			position.PositionID,
 			position.AssetName,
 			position.Direction,
 			position.Amount,

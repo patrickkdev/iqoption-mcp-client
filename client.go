@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -523,13 +522,6 @@ func (c *Client) doHTTP(
 			resp.StatusCode,
 		)
 	}
-
-	log.Printf(
-		"MCP response: status=%d content-type=%q body=%q",
-		resp.StatusCode,
-		resp.Header.Get("Content-Type"),
-		string(responseBody)[:min(256, len(responseBody))],
-	)
 
 	if resp.StatusCode == http.StatusNotFound ||
 		resp.StatusCode == http.StatusGone {

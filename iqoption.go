@@ -91,9 +91,6 @@ func (c *Client) ListAssets(
 			)
 		}
 
-		asset.ExpirationSizesSeconds =
-			append([]int(nil), row.ExpirationSizesSeconds...)
-
 		assets = append(assets, asset)
 	}
 
@@ -192,7 +189,7 @@ func (c *Client) ListPositions(
 
 	for _, row := range payload.Positions {
 		positions = append(positions, Position{
-			ID:               row.PositionID,
+			PositionID:       row.PositionID,
 			AssetID:          row.AssetID,
 			AssetName:        row.AssetName,
 			Status:           row.Status,
@@ -202,8 +199,8 @@ func (c *Client) ListPositions(
 			CurrentPrice:     row.CurrentPrice,
 			ExpectedProfit:   row.ExpectedProfit,
 			SellProfit:       row.SellProfit,
-			OpenTime:         time.Unix(row.OpenTime, 0).UTC(),
-			Expiration:       time.Unix(row.Expiration, 0).UTC(),
+			OpenTime:         row.OpenTime.UTC(),
+			Expiration:       row.Expiration.UTC(),
 			SecondsRemaining: row.SecondsRemaining,
 		})
 	}
@@ -395,6 +392,162 @@ func (c *Client) GetLimits(
 	return limits, nil
 }
 
+func (c *Client) ListTools(ctx context.Context) ([]byte, error) {
+	result, err := c.call(ctx, "tools/list", map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *Client) WaitForTradeResult(
+	ctx context.Context,
+	balanceID int64,
+	positionID int64,
+	pollInterval time.Duration,
+) (*Trade, error) {
+	if balanceID <= 0 {
+		return nil, fmt.Errorf("balance ID must be positive")
+	}
+
+	if positionID <= 0 {
+		return nil, fmt.Errorf("position ID must be positive")
+	}
+
+	if pollInterval <= 0 {
+		pollInterval = 2 * time.Second
+	}
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	// Check immediately instead of waiting for the first ticker tick.
+	open, err := c.positionExists(ctx, balanceID, positionID)
+	if err != nil {
+		return nil, fmt.Errorf("check trade position: %w", err)
+	}
+
+	if !open {
+		return c.waitForTradeHistory(ctx, positionID, pollInterval)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf(
+				"waiting for trade %d: %w",
+				positionID,
+				ctx.Err(),
+			)
+
+		case <-ticker.C:
+			open, err := c.positionExists(ctx, balanceID, positionID)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"check trade position %d: %w",
+					positionID,
+					err,
+				)
+			}
+
+			if !open {
+				return c.waitForTradeHistory(
+					ctx,
+					positionID,
+					pollInterval,
+				)
+			}
+		}
+	}
+}
+
+func (c *Client) positionExists(
+	ctx context.Context,
+	balanceID int64,
+	positionID int64,
+) (bool, error) {
+	positions, err := c.ListPositions(ctx, balanceID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, position := range positions {
+		if position.PositionID == positionID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (c *Client) waitForTradeHistory(
+	ctx context.Context,
+	positionID int64,
+	pollInterval time.Duration,
+) (*Trade, error) {
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	// Check immediately because the history may already have been updated.
+	trade, found, err := c.findTradeInHistory(ctx, positionID)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"check trade history %d: %w",
+			positionID,
+			err,
+		)
+	}
+
+	if found {
+		return trade, nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf(
+				"waiting for completed trade %d: %w",
+				positionID,
+				ctx.Err(),
+			)
+
+		case <-ticker.C:
+			trade, found, err := c.findTradeInHistory(ctx, positionID)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"check trade history %d: %w",
+					positionID,
+					err,
+				)
+			}
+
+			if found {
+				return trade, nil
+			}
+		}
+	}
+}
+
+func (c *Client) findTradeInHistory(
+	ctx context.Context,
+	positionID int64,
+) (*Trade, bool, error) {
+	// 100 should be plenty for finding a just-completed trade.
+	history, err := c.ListTradeHistory(ctx, 0, 100)
+	if err != nil {
+		return nil, false, err
+	}
+
+	for i := range history {
+		if history[i].PositionID == positionID {
+			return &history[i], true, nil
+		}
+	}
+
+	return nil, false, nil
+}
+
 // FindM15Expiration returns the server-provided expiration closest to 15
 // minutes from now.
 //
@@ -517,7 +670,6 @@ type assetRow struct {
 	Precision              int     `json:"precision"`
 	ProfitPercent          float64 `json:"profit_percent"`
 	Expirations            []int64 `json:"expirations"`
-	ExpirationSizesSeconds []int   `json:"expiration_sizes_seconds"`
 	MinimumAmount          float64 `json:"minimum_amount"`
 	MaximumAmount          float64 `json:"maximum_amount"`
 	DeadtimeSeconds        int     `json:"deadtime_seconds"`
@@ -536,19 +688,19 @@ type candleRow struct {
 }
 
 type positionRow struct {
-	PositionID       int64   `json:"position_id"`
-	AssetID          int64   `json:"asset_id"`
-	AssetName        string  `json:"asset_name"`
-	Status           string  `json:"status"`
-	Direction        string  `json:"direction"`
-	Amount           float64 `json:"amount"`
-	OpenPrice        float64 `json:"open_price"`
-	CurrentPrice     float64 `json:"current_price"`
-	ExpectedProfit   float64 `json:"expected_profit"`
-	SellProfit       float64 `json:"sell_profit"`
-	OpenTime         int64   `json:"open_time"`
-	Expiration       int64   `json:"expiration"`
-	SecondsRemaining int     `json:"seconds_remaining"`
+	PositionID       int64     `json:"position_id"`
+	AssetID          int64     `json:"asset_id"`
+	AssetName        string    `json:"asset_name"`
+	Status           string    `json:"status"`
+	Direction        string    `json:"direction"`
+	Amount           float64   `json:"amount"`
+	OpenPrice        float64   `json:"open_price"`
+	CurrentPrice     float64   `json:"current_price"`
+	ExpectedProfit   float64   `json:"expected_profit"`
+	SellProfit       float64   `json:"sell_profit"`
+	OpenTime         time.Time `json:"open_time"`
+	Expiration       time.Time `json:"expiration"`
+	SecondsRemaining int       `json:"seconds_remaining"`
 }
 
 type tradeRow struct {

@@ -31,7 +31,6 @@ type Asset struct {
 	Precision              int
 	ProfitPercent          float64
 	Expirations            []time.Time
-	ExpirationSizesSeconds []int
 	MinimumAmount          float64
 	MaximumAmount          float64
 	DeadtimeSeconds        int
@@ -52,7 +51,7 @@ type Candle struct {
 
 // Position represents an open or recently open position.
 type Position struct {
-	ID               int64
+	PositionID       int64
 	AssetID          int64
 	AssetName        string
 	Status           string

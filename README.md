@@ -45,7 +45,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/patrickkdev/iqoption-mcp-client"
+	iqclient "github.com/patrickkdev/iqoption-mcp-client"
 )
 
 func main() {
@@ -61,8 +61,8 @@ func main() {
 	}
 	defer client.Close()
 
-	// 1. List Balances
-	balances, err := client.ListBalances(ctx, iqclient.BalanceTypeAll)
+	// 1. List Balances (e.g., Training balance)
+	balances, err := client.ListBalances(ctx, iqclient.BalanceTypeTraining)
 	if err != nil {
 		log.Fatalf("Error listing balances: %v", err)
 	}
@@ -82,16 +82,52 @@ func main() {
 		fmt.Printf("Time: %v | Open: %f | Close: %f\n", c.From, c.Open, c.Close)
 	}
 
-	// 3. Place a Trade (Practice Account)
-	// Important: Use server-provided expirations from ListAssets
-	// result, err := client.PlaceTrade(ctx, iqclient.TradeRequest{
-	//     BalanceID:     trainingBalanceID,
-	//     AssetID:       1,
-	//     Direction:     "call",
-	//     Amount:        1.0,
-	//     ProfitPercent: 85,
-	//     Expired:       targetExpiration,
-	// })
+	// 3. List Assets and available Expirations
+	assets, err := client.ListAssets(ctx, true)
+	if err != nil {
+		log.Fatalf("Error listing assets: %v", err)
+	}
+	for index, a := range assets {
+		fmt.Printf("Asset: %d %s (%d) | Expirations: %v\n", index, a.Name, a.ID, a.Expirations)
+	}
+
+	// 4. Place a Trade
+	targetAsset := assets[0] // Select target asset from available assets
+	result, err := client.PlaceTrade(ctx, iqclient.TradeRequest{
+		BalanceID:     balances[0].BalanceID,
+		AssetID:       targetAsset.ID,
+		Direction:     "call",
+		Amount:        1.0,
+		ProfitPercent: targetAsset.ProfitPercent,
+		Expired:       targetAsset.Expirations[0],
+	})
+	if err != nil {
+		log.Fatalf("Error placing trade: %v", err)
+	}
+
+	fmt.Printf("Trade accepted: position_id=%d\n", result)
+
+	// 5. Wait for Trade Outcome
+	tradeCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
+
+	trade, err := client.WaitForTradeResult(
+		tradeCtx,
+		balances[0].BalanceID,
+		result,
+		2*time.Second,
+	)
+	if err != nil {
+		log.Fatalf("Error waiting for trade result: %v", err)
+	}
+
+	fmt.Printf(
+		"Trade finished: position_id=%d result=%s profit=%.2f close_reason=%s\n",
+		trade.PositionID,
+		trade.Result,
+		trade.Profit,
+		trade.CloseReason,
+	)
 }
 ```
 

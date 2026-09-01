@@ -179,13 +179,13 @@ func TestLive_DemoPlaceTrade(t *testing.T) {
 		}
 
 		for _, position := range positions {
-			if position.ID == positionID {
+			if position.PositionID == positionID {
 				found = true
 
 				if position.AssetID != asset.ID {
 					t.Fatalf(
 						"position %d asset mismatch: got %d want %d",
-						position.ID,
+						position.PositionID,
 						position.AssetID,
 						asset.ID,
 					)
@@ -194,14 +194,14 @@ func TestLive_DemoPlaceTrade(t *testing.T) {
 				if position.Direction != "call" {
 					t.Fatalf(
 						"position %d direction mismatch: got %q",
-						position.ID,
+						position.PositionID,
 						position.Direction,
 					)
 				}
 
 				t.Logf(
 					"verified DEMO position: id=%d status=%s expiration=%s remaining=%ds",
-					position.ID,
+					position.PositionID,
 					position.Status,
 					position.Expiration.Format(time.RFC3339),
 					position.SecondsRemaining,
